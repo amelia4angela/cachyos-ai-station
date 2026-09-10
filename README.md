@@ -10,7 +10,7 @@ CachyOS + KDE Plasma 6 + Hermes 多代理 AI + 游戏串流
 |:---:|:---|:---|
 | 0 | [阶段零-前置授权](阶段零-前置授权.md) | paru / sudo 免密 / linger |
 | 1 | [阶段一-环境检测](阶段一-环境检测.md) | 系统 / Hermes / 网络 / 输入法 |
-| 2 | [阶段二-Hermes多代理系统](阶段二-Hermes多代理系统.md) | SkillHub / 4 Agent / soul.md → [Agent灵魂文件](Agent灵魂文件.md) |
+| 2 | [阶段二-Hermes多代理系统](阶段二-Hermes多代理系统.md) | SkillHub / 4 Agent / soul.md |
 | 3 | [阶段三-网络代理](阶段三-网络代理.md) | Clash Verge v4 / SOCKS5 |
 | 4 | [阶段四-输入法](阶段四-输入法.md) | Fcitx5 / 雾凇拼音 / 29 主题 |
 | 5 | [阶段五-Sunshine串流](阶段五-Sunshine串流.md) | Sunshine / Moonlight / 显示器切换 |
