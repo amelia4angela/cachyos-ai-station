@@ -19,6 +19,20 @@ Moonlight 断开
       → 恢复内屏
 ```
 
+## 安装方式
+
+```bash
+# 推荐：AUR 版本（最新）
+paru -S sunshine
+# 或
+shelly install sunshine
+
+# 官方仓库版本（落后一个版本，不推荐）
+# sudo pacman -S sunshine
+```
+
+> ⚠️ AUR 版本始终比官方仓库新，推荐用 AUR 版。
+
 ## 显示器信息
 
 | 输出名 | 类型 | 说明 |
