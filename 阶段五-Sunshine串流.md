@@ -4,60 +4,14 @@
 
 # 阶段五：Sunshine 串流
 
-## 架构
+## 最终方案（v7 实测确认）
 
-```
-Moonlight 客户端（手机/平板/另一台电脑）
-  → Sunshine 触发 global_prep_cmd.do
-    → kscreen-doctor-env（注入 Wayland 环境变量）
-      → kscreen-doctor output.eDP-1.disable
-        → KWin 关闭内屏，只剩 HDMI-A-3
-
-Moonlight 断开
-  → Sunshine 触发 global_prep_cmd.undo
-    → kscreen-doctor output.eDP-1.enable
-      → 恢复内屏
-```
-
-## 安装方式
-
-```bash
-# 推荐：AUR 版本（最新）
-paru -S sunshine
-# 或
-shelly install sunshine
-
-# 官方仓库版本（落后一个版本，不推荐）
-# sudo pacman -S sunshine
-```
-
-> ⚠️ AUR 版本始终比官方仓库新，推荐用 AUR 版。
-
-## 显示器信息
-
-| 输出名 | 类型 | 说明 |
-|---|---|---|
-| eDP-1 | 内屏 | 笔记本屏幕（第一屏幕）|
-| HDMI-A-3 | 外接屏 | HDMI 外接显示器（第二屏幕）|
-
-## kscreen-doctor-env Wrapper
-
-Sunshine 从 systemd 启动，没有 Wayland 环境变量。需要 wrapper 从 plasmashell 进程注入：
-
-```bash
-#!/bin/bash
-# ~/.local/bin/kscreen-doctor-env
-PLASMA_PID=$(pgrep -u chao plasmashell | head -1)
-if [[ -n "$PLASMA_PID" ]]; then
-    while IFS='=' read -r key value; do
-        case "$key" in
-            DISPLAY|WAYLAND_DISPLAY|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR|QT_QPA_PLATFORM)
-                export "$key=$value" ;;
-        esac
-    done < /proc/$PLASMA_PID/environ
-fi
-exec /usr/sbin/kscreen-doctor "$@"
-```
+| 组件 | 配置 |
+|---|---|
+| 捕获方式 | `capture = kms`（DRM framebuffer 直接捕获） |
+| 编码器 | `encoder = nvenc`（NVIDIA 硬件编码） |
+| 显示器切换 | `global_prep_cmd` + `sunshine-display-switch.sh` |
+| 关屏串流 | ✅ KMS 捕获不受 DPMS 影响 |
 
 ## Sunshine 配置
 
@@ -67,32 +21,76 @@ exec /usr/sbin/kscreen-doctor "$@"
 address_family = both
 locale = zh
 upnp = enabled
-global_prep_cmd = [{"do":"/home/chao/.local/bin/kscreen-doctor-env output.eDP-1.disable","undo":"/home/chao/.local/bin/kscreen-doctor-env output.eDP-1.enable"}]
+
+# KMS 捕获（直接从 DRM framebuffer，关屏也能串流）
+capture = kms
+
+# NVENC 硬件编码
+encoder = nvenc
+
+# 串流时：关闭内屏，只用外接屏
+global_prep_cmd = [{"do":"/home/chao/.local/bin/sunshine-display-switch.sh do","undo":"/home/chao/.local/bin/sunshine-display-switch.sh undo"}]
 ```
+
+## 显示器切换脚本
+
+**`~/.local/bin/sunshine-display-switch.sh`**：
+
+```bash
+#!/bin/bash
+export DISPLAY=:0
+export WAYLAND_DISPLAY=wayland-0
+export XDG_RUNTIME_DIR=/run/user/1000
+export QT_QPA_PLATFORM=wayland
+
+case "$1" in
+    do)
+        /usr/sbin/kscreen-doctor output.eDP-1.disable 2>/dev/null
+        ;;
+    undo)
+        /usr/sbin/kscreen-doctor output.eDP-1.enable 2>/dev/null
+        ;;
+    status)
+        /usr/sbin/kscreen-doctor -o 2>&1 | grep -E "Output:|enabled|disabled"
+        ;;
+esac
+```
+
+## 显示器信息
+
+| 输出名 | 类型 | 说明 |
+|---|---|---|
+| eDP-1 | 内屏 | 笔记本屏幕 |
+| HDMI-A-3 | 外接屏 | HDMI 外接显示器 |
+
+## 为什么选 KMS
+
+| 捕获方式 | 结果 |
+|---|---|
+| `capture = kwin` | ❌ YUV 4:4:4 与 NVENC 不兼容，黑屏 |
+| `capture = gpu` | ❌ 找不到显示输出 |
+| **`capture = kms`** | **✅ 正常工作** |
+
+KMS 直接从 GPU framebuffer 捕获，不经过 PipeWire/KWin，格式兼容性最好。
 
 ## 防火墙规则
 
 ```bash
-# TCP 控制/视频/音频
 sudo ufw allow 47984:47990/tcp comment "Sunshine TCP"
 sudo ufw allow 48010/tcp comment "Sunshine TCP"
-
-# UDP 实时传输
 sudo ufw allow 47998:48002/udp comment "Sunshine UDP"
 ```
 
-## DPMS 与串流
-
-| 关屏方式 | 能串流？ | 原因 |
-|---|---|---|
-| KDE 节能关屏（DPMS）| ✅ | GPU 仍在渲染 |
-| kscreen-doctor disable | ❌ | 输出被禁用 |
-| 物理关显示器电源 | ✅ | GPU 照常工作 |
-
-**关键**：只要外接屏没被 disable，关屏也能串流。
-
-## 重启 Sunshine
+## 自启动
 
 ```bash
-systemctl --user restart app-dev.lizardbyte.app.Sunshine.service
+systemctl --user is-enabled app-dev.lizardbyte.app.Sunshine.service
+# 输出：enabled
+```
+
+## 安装
+
+```bash
+# AUR 版本（推荐，最新）
+paru -S sunshine
 ```
