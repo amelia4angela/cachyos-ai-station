@@ -37,6 +37,6 @@ CachyOS + KDE Plasma 6 + Hermes 多代理 AI + 游戏串流
 | 系统 | CachyOS Linux · KDE Plasma 6 · Wayland |
 | GPU | NVIDIA RTX 4060 Max-Q + Intel UHD |
 | AI | Hermes Agent v0.21.1 · 4 Agent |
-| 代理 | Clash Verge Rev · SOCKS5 · 7897 |
+| 代理 | Clash Verge Rev · HTTP+SOCKS5 · 7897 |
 | 输入法 | Fcitx5 + 雾凇拼音 · 29 主题 |
 | 串流 | Sunshine + Moonlight |
