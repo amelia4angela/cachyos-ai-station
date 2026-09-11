@@ -4,15 +4,15 @@
 
 # 阶段五：Sunshine 串流
 
-## 最终方案（v7 实测确认）
+## 最终方案（v9 实测确认）
 
 | 组件 | 配置 |
 |---|---|
 | 捕获方式 | `capture = kms`（DRM framebuffer 直接捕获） |
 | 编码器 | `encoder = nvenc`（NVIDIA 硬件编码） |
-| 显示器切换 | `global_prep_cmd` + `sunshine-display-switch.sh` |
-| 欺骗器 | HDMI-A-3，内核强制 3840x2160@60 |
-| 关屏串流 | ✅ 欺骗器永远在线，不受 DPMS 影响 |
+| 目标输出 | `output_name = HDMI-A-3`（欺骗器） |
+| 显示器切换 | `sunshine-display-switch.sh` |
+| 欺骗器 | HDMI Dummy Plug，内核强制 3840x2160@60 |
 
 ## Sunshine 配置
 
@@ -23,14 +23,14 @@ address_family = both
 locale = zh
 upnp = enabled
 
-# KMS 捕获（直接从 DRM framebuffer）
+# KMS 捕获，固定抓 HDMI-A-3（欺骗器）
 capture = kms
+output_name = HDMI-A-3
 
 # NVENC 硬件编码
 encoder = nvenc
 
-# 串流时：关闭内屏，只用外接屏
-# 退出串流：恢复内屏
+# 串流时：开欺骗器+primary，关主屏
 global_prep_cmd = [{"do":"/home/chao/.local/bin/sunshine-display-switch.sh do","undo":"/home/chao/.local/bin/sunshine-display-switch.sh undo"}]
 ```
 
@@ -40,6 +40,13 @@ global_prep_cmd = [{"do":"/home/chao/.local/bin/sunshine-display-switch.sh do","
 
 ```bash
 #!/bin/bash
+# Sunshine 显示器切换脚本（v9）
+#
+# 串流时（do）：开欺骗器+primary → 关主屏 → 杀锁屏（KDE 在欺骗器上重建）
+# 退出串流（undo）：开主屏+primary → 关欺骗器 → 杀锁屏（KDE 在主屏上重建）
+#
+# 不禁用锁屏服务——让 KDE 自己管理
+
 export DISPLAY=:0
 export WAYLAND_DISPLAY=wayland-0
 export XDG_RUNTIME_DIR=/run/user/1000
@@ -47,61 +54,67 @@ export QT_QPA_PLATFORM=wayland
 
 case "$1" in
     do)
+        # 1. 确保欺骗器开启
+        /usr/sbin/kscreen-doctor output.HDMI-A-3.enable 2>/dev/null
+        # 2. 欺骗器设为主显示器
+        /usr/sbin/kscreen-doctor output.HDMI-A-3.primary 2>/dev/null
+        # 3. 关闭主屏
         /usr/sbin/kscreen-doctor output.eDP-1.disable 2>/dev/null
+        # 4. 杀锁屏（KDE 会在欺骗器上重建）
+        kill $(pgrep -f kscreenlocker_greet) 2>/dev/null
+        kill $(pgrep -f kscreenlocker) 2>/dev/null
         ;;
     undo)
+        # 1. 开启主屏
         /usr/sbin/kscreen-doctor output.eDP-1.enable 2>/dev/null
+        # 2. 主屏设为 primary
+        /usr/sbin/kscreen-doctor output.eDP-1.primary 2>/dev/null
+        # 3. 关闭欺骗器
+        /usr/sbin/kscreen-doctor output.HDMI-A-3.disable 2>/dev/null
+        # 4. 杀锁屏（KDE 会在主屏上重建）
+        kill $(pgrep -f kscreenlocker_greet) 2>/dev/null
+        kill $(pgrep -f kscreenlocker) 2>/dev/null
         ;;
     status)
-        /usr/sbin/kscreen-doctor -o 2>&1 | grep -E "Output:|enabled|disabled"
+        /usr/sbin/kscreen-doctor -o 2>&1 | grep -E "Output:|enabled|disabled|primary"
         ;;
 esac
 ```
-
-## 欺骗器配置（关键）
-
-### 硬件
-
-HDMI-A-3 接了一个**欺骗器**（HDMI Dummy Plug），欺骗器永远报告 `connected`，不会被 DPMS 关掉。
-
-### 内核强制分辨率
-
-在 limine.conf 中添加内核参数，开机强制 dummy 显示器以最高分辨率运行：
-
-```
-video=HDMI-A-3:3840x2160@60
-```
-
-修改方法：
-```bash
-sudo sed -i '/cmdline:.*rootflags=subvol=\/@ root=UUID/s|$| video=HDMI-A-3:3840x2160@60|' /boot/limine.conf
-sudo reboot
-```
-
-### 为什么需要欺骗器
-
-| 没有欺骗器 | 有欺骗器 |
-|---|---|
-| Sunshine 找不到显示输出 | 欺骗器永远在线 |
-| 关屏后 KMS 断连 | 关屏不影响欺骗器 |
-| 需要虚拟显示模块 | 即插即用，零配置 |
 
 ## 显示器信息
 
 | 输出名 | 类型 | 说明 |
 |---|---|---|
-| eDP-1 | 内屏 | 笔记本屏幕，串流时关闭 |
-| HDMI-A-3 | 欺骗器 | HDMI Dummy Plug，永远在线，Sunshine 抓这个 |
+| eDP-1 | 主屏 | 笔记本屏幕，串流时关闭 |
+| HDMI-A-3 | 欺骗器 | HDMI Dummy Plug，Sunshine 抓这个 |
+
+## 核心原则
+
+- **主屏永远不 disable 时让锁屏有输出**：先切显示器，再杀锁屏，KDE 自动在正确的显示器上重建
+- **不禁用锁屏服务**：让 KDE 自己管理锁屏生命周期
+- **欺骗器永远在线**：内核参数 `video=HDMI-A-3:3840x2160@60` 强制分辨率
 
 ## 捕获方式选择
 
 | 方案 | 结果 |
 |---|---|
-| `capture = kwin` | ❌ YUV 4:4:4 与 NVENC 不兼容，黑屏 |
+| `capture = kwin` | ❌ YUV 4:4:4 与 NVENC 不兼容 |
 | `capture = gpu` | ❌ 找不到显示输出 |
 | **`capture = kms`** | **✅ 正常工作** |
 
-KMS 直接从 DRM framebuffer 捕获，不经过 PipeWire/KWin，格式兼容性最好。
+## 欺骗器内核参数
+
+在 limine.conf 中添加：
+
+```
+video=HDMI-A-3:3840x2160@60
+```
+
+修改命令：
+```bash
+sudo sed -i '/cmdline:.*rootflags=subvol=\/@ root=UUID/s|$| video=HDMI-A-3:3840x2160@60|' /boot/limine.conf
+sudo reboot
+```
 
 ## 防火墙规则
 
@@ -121,7 +134,6 @@ systemctl --user is-enabled app-dev.lizardbyte.app.Sunshine.service
 ## 安装
 
 ```bash
-# AUR 版本（推荐，最新）
 paru -S sunshine
 ```
 
@@ -134,4 +146,7 @@ cat /sys/class/drm/card1-HDMI-A-3/status
 
 # 检查 Sunshine 端口
 ss -tlnp | grep -E "47984|47989|47990|48010"
+
+# 查看切换日志
+~/.local/bin/sunshine-display-switch.sh log
 ```
